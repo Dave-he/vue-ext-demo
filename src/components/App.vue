@@ -39,23 +39,22 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useStorage } from '@vueuse/core'
 
 const isActive = ref(false)
 const selection = ref('')
 const savedData = ref<any>(null)
 
-// 使用浏览器存储
-const enabledStore = useStorage('enabled', true)
-
-onMounted(() => {
-  // 初始化状态
-  isActive.value = enabledStore.value
+onMounted(async () => {
+  // 从 Chrome 存储获取状态
+  const result = await chrome.storage.sync.get(['enabled'])
+  isActive.value = result.enabled ?? true
 })
 
 const toggleExtension = async () => {
   isActive.value = !isActive.value
-  enabledStore.value = isActive.value
+  
+  // 保存到 Chrome 存储
+  await chrome.storage.sync.set({ enabled: isActive.value })
   
   // 通知背景脚本
   await chrome.runtime.sendMessage({
