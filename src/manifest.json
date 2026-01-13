@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Vue TS Browser Extension",
+  "version": "1.0.0",
+  "description": "A Vue + TypeScript browser extension built with Vite",
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["assets/css/content.css"]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_title": "Vue TS Extension"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/**/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
