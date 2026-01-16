@@ -1,37 +1,66 @@
 <template>
   <div class="vue-extension-app">
     <div class="header">
-      <h1>Vue TS Extension</h1>
-      <div class="status-indicator" :class="{ active: isActive }">
-        {{ isActive ? 'Active' : 'Inactive' }}
+      <h1>AI Tools</h1>
+      <div class="tab-switcher">
+        <button
+          :class="['tab-btn', { active: activeTab === 'chat' }]"
+          @click="activeTab = 'chat'"
+        >
+          Ollama
+        </button>
+        <button
+          :class="['tab-btn', { active: activeTab === 'markdown' }]"
+          @click="activeTab = 'markdown'"
+        >
+          Markdown
+        </button>
       </div>
     </div>
-    
+
     <div class="content">
-      <p>This is a Vue.js extension built with TypeScript and Vite.</p>
-      
-      <div class="controls">
-        <button @click="toggleExtension" class="btn">
-          {{ isActive ? 'Disable' : 'Enable' }}
-        </button>
-        
-        <button @click="getSelection" class="btn btn-secondary">
-          Get Selection
-        </button>
-        
-        <button @click="saveData" class="btn btn-primary">
-          Save Data
-        </button>
+      <OllamaChat v-show="activeTab === 'chat'" @openSettings="openSettings" />
+
+      <div v-show="activeTab === 'markdown'" class="markdown-tools">
+        <div class="feature-card">
+          <h3>Export</h3>
+          <div class="btn-row">
+            <button class="btn btn-primary" :disabled="loading" @click="exportMarkdown('selection')">
+              Export Selection
+            </button>
+            <button class="btn" :disabled="loading" @click="exportMarkdown('article')">
+              Export Page
+            </button>
+          </div>
+
+          <div class="btn-row" v-if="markdown">
+            <button class="btn" @click="copyMarkdown">Copy Markdown</button>
+            <button class="btn" @click="downloadMarkdown">Download .md</button>
+          </div>
+
+          <p v-if="error" class="error">{{ error }}</p>
+          <p v-if="loading" class="hint">Processing page content...</p>
+        </div>
+
+        <div class="feature-card">
+          <h3>Preview</h3>
+          <div v-if="!markdown" class="empty">Click button above to export</div>
+          <textarea v-else class="preview" readonly :value="markdown" />
+        </div>
       </div>
-      
-      <div v-if="selection" class="selection">
-        <h3>Selected Text:</h3>
-        <p>{{ selection }}</p>
-      </div>
-      
-      <div v-if="savedData" class="data">
-        <h3>Saved Data:</h3>
-        <pre>{{ JSON.stringify(savedData, null, 2) }}</pre>
+
+      <div class="status-card">
+        <h3>Status</h3>
+        <div class="status-item">
+          <span>Extension:</span>
+          <span :class="{ active: extensionEnabled }">
+            {{ extensionEnabled ? 'Enabled' : 'Disabled' }}
+          </span>
+        </div>
+        <div class="status-item">
+          <span>Version:</span>
+          <span>{{ version }}</span>
+        </div>
       </div>
     </div>
   </div>
@@ -39,123 +68,184 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import OllamaChat from './OllamaChat.vue'
 
-const isActive = ref(false)
-const selection = ref('')
-const savedData = ref<any>(null)
+type ExportMode = 'selection' | 'article'
+
+interface ExportResponse {
+  title: string
+  url: string
+  markdown: string
+}
+
+const activeTab = ref('chat')
+const extensionEnabled = ref(false)
+const version = ref('1.0.0')
+const loading = ref(false)
+const error = ref('')
+const markdown = ref('')
+const lastTitle = ref('')
 
 onMounted(async () => {
-  // 从 Chrome 存储获取状态
   const result = await chrome.storage.sync.get(['enabled'])
-  isActive.value = result.enabled ?? true
+  extensionEnabled.value = result.enabled ?? true
+
+  const manifest = chrome.runtime.getManifest()
+  version.value = manifest.version
 })
 
-const toggleExtension = async () => {
-  isActive.value = !isActive.value
-  
-  // 保存到 Chrome 存储
-  await chrome.storage.sync.set({ enabled: isActive.value })
-  
-  // 通知背景脚本
-  await chrome.runtime.sendMessage({
-    action: 'toggleExtension'
-  })
+function openSettings() {
+  chrome.runtime.openOptionsPage?.()
 }
 
-const getSelection = async () => {
+async function getActiveTabId(): Promise<number> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  if (!tab?.id) throw new Error('Cannot find current tab')
+  return tab.id
+}
+
+async function exportMarkdown(mode: ExportMode) {
+  loading.value = true
+  error.value = ''
+
   try {
-    const response = await chrome.runtime.sendMessage({
-      action: 'getSelection'
-    })
-    selection.value = response.text
-  } catch (error) {
-    console.error('Error getting selection:', error)
+    const tabId = await getActiveTabId()
+
+    const res = (await chrome.tabs.sendMessage(tabId, {
+      action: 'exportMarkdown',
+      mode
+    })) as ExportResponse
+
+    markdown.value = res.markdown
+    lastTitle.value = res.title || 'page'
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    loading.value = false
   }
 }
 
-const saveData = async () => {
-  const data = {
-    timestamp: new Date().toISOString(),
-    message: 'Hello from Vue Extension!'
-  }
-  
-  savedData.value = data
-  
-  await chrome.runtime.sendMessage({
-    action: 'saveData',
-    data
-  })
+async function copyMarkdown() {
+  if (!markdown.value) return
+  await navigator.clipboard.writeText(markdown.value)
+}
+
+function downloadMarkdown() {
+  if (!markdown.value) return
+
+  const blob = new Blob([markdown.value], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+
+  const safeTitle = (lastTitle.value || 'page')
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .slice(0, 80)
+
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${safeTitle}.md`
+  a.click()
+
+  URL.revokeObjectURL(url)
 }
 </script>
 
 <style scoped>
 .vue-extension-app {
-  width: 320px;
-  padding: 20px;
+  width: 360px;
+  min-height: 500px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: #ffffff;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
 .header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  padding: 12px 16px;
   border-bottom: 1px solid #e5e5e5;
-  padding-bottom: 10px;
+  background: #fafafa;
 }
 
 .header h1 {
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
+  font-weight: 600;
   color: #333;
 }
 
-.status-indicator {
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: bold;
+.tab-switcher {
+  display: flex;
+  gap: 4px;
   background: #f0f0f0;
+  padding: 3px;
+  border-radius: 6px;
+}
+
+.tab-btn {
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #666;
+  transition: all 0.2s;
+}
+
+.tab-btn.active {
+  background: white;
+  color: #333;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.content {
+  padding: 16px;
+}
+
+.markdown-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.feature-card,
+.status-card {
+  background: #f9f9f9;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #eee;
+}
+
+.feature-card h3,
+.status-card h3 {
+  margin: 0 0 10px 0;
+  font-size: 13px;
   color: #666;
 }
 
-.status-indicator.active {
-  background: #e8f5e9;
-  color: #2e7d32;
-}
-
-.content p {
-  color: #666;
-  line-height: 1.5;
-  margin-bottom: 20px;
-}
-
-.controls {
+.btn-row {
   display: flex;
   gap: 8px;
-  margin-bottom: 20px;
+  flex-wrap: wrap;
 }
 
 .btn {
-  padding: 8px 16px;
+  padding: 8px 12px;
   border: 1px solid #ddd;
   border-radius: 6px;
   background: #fff;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   transition: all 0.2s;
 }
 
 .btn:hover {
   background: #f5f5f5;
-  border-color: #ccc;
 }
 
-.btn:active {
-  transform: translateY(1px);
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .btn-primary {
@@ -168,39 +258,57 @@ const saveData = async () => {
   background: #1565c0;
 }
 
-.btn-secondary {
-  background: #f5f5f5;
-  color: #333;
-  border-color: #ddd;
+.status-card {
+  margin-top: 16px;
 }
 
-.selection, .data {
-  margin-top: 20px;
-  padding: 12px;
-  background: #f9f9f9;
-  border-radius: 6px;
-  border: 1px solid #eee;
-}
-
-.selection h3, .data h3 {
-  margin: 0 0 8px 0;
-  font-size: 14px;
-  color: #666;
-}
-
-.selection p {
-  margin: 0;
+.status-item {
+  display: flex;
+  justify-content: space-between;
   font-size: 13px;
-  color: #333;
+  color: #666;
+  margin-bottom: 6px;
 }
 
-.data pre {
-  margin: 0;
+.status-item span:first-child {
+  font-weight: 500;
+}
+
+.status-item .active {
+  color: #2e7d32;
+  font-weight: bold;
+}
+
+.preview {
+  width: 100%;
+  height: 200px;
+  resize: vertical;
+  border-radius: 6px;
+  border: 1px solid #e5e5e5;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.empty {
+  font-size: 12px;
+  color: #888;
+  padding: 6px 0;
+}
+
+.hint {
+  margin: 10px 0 0;
   font-size: 12px;
   color: #666;
-  background: #fff;
-  padding: 8px;
-  border-radius: 4px;
-  border: 1px solid #eee;
+}
+
+.error {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #c62828;
+  white-space: pre-wrap;
 }
 </style>
