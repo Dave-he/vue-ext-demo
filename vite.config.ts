@@ -9,7 +9,8 @@ export default defineConfig({
       input: {
         content: 'src/content.ts',
         background: 'src/background.ts',
-        popup: 'src/popup/main.ts'
+        popup: 'src/popup/main.ts',
+        settings: 'src/settings/main.ts'
       },
       output: {
         chunkFileNames: 'assets/js/[name].js',

@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite build --watch",
-    "build": "vite build && node scripts/copy-manifest.js && node scripts/patch-dist.js && node scripts/generate-icons.js",
+    "build": "vite build && node scripts/copy-manifest.js && node scripts/copy-settings.js && node scripts/patch-dist.js && node scripts/generate-icons.js",
     "preview": "vite preview",
     "clean": "rimraf dist",
     "verify": "node scripts/verify-build.js"
